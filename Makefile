@@ -1,68 +1,31 @@
-ALL_DIRS=$(shell find . -path ./.git -prune -o -type d -print)
-GO_PKGS=$(shell go list ./...)
-EXECUTABLE=gopkgredir
-DOCKER_DIR=Docker
-DOCKER_FILE=$(DOCKER_DIR)/Dockerfile
-GO_FILES=$(foreach dir, $(ALL_DIRS), $(wildcard $(dir)/*.go))
-SRC_DIR = $(shell cd ../../.. && pwd)
-METALINT = "gometalinter --cyclo-over=10 -D gotype -t"
-DOCKER_RELEASE_TAG=$(shell date +%Y%m%d-%H%M%S)
-GOLANG_VERSION ?= 1.6
-GO_LINTERS ?= golint "go vet"
-
-GIT_COMMIT=unknown
-
-ifeq ("$(CIRCLECI)", "true")
-	CI_SERVICE = circle-ci
-	export GIT_BRANCH = $(CIRCLE_BRANCH)
-	GIT_COMMIT = $(CIRCLE_SHA1)
-endif
+VERSION = 0.1.0
 
 all: build
 
-lint:
-	@for pkg in $(GO_PKGS); do \
-		for cmd in $(GO_LINTERS); do \
-			eval "$$cmd $$pkg" || true; \
-		done; \
-	done
+include .lib.mk
 
-metalint:
-	@for pkg in $(GO_PKGS); do \
-		eval "$(METALINT) $(SRC_DIR)/$$pkg" || true; \
-	done
+EXECUTABLE ?= $(REPO_NAME)
+DOCKER_EXECUTABLE = $(DOCKER_DIR)/$(EXECUTABLE)
+LDFLAGS := '-X main.name=$(EXECUTABLE) -X main.version=$(VERSION)'
 
 build: $(EXECUTABLE)
 
 $(EXECUTABLE): $(GO_FILES)
-	go build -v -o $(EXECUTABLE) $(PKG)
+	go build -v -ldflags $(LDFLAGS) -o $(EXECUTABLE) $(BASE_PKG)
 
-clean:
-	@rm -f $(EXECUTABLE) $(DOCKER_DIR)/$(EXECUTABLE)
-
-$(DOCKER_DIR)/$(EXECUTABLE): $(GO_FILES)
-	@CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -v -tags netgo -installsuffix netgo -o $(DOCKER_DIR)/$(EXECUTABLE) $(PKG)
+$(DOCKER_EXECUTABLE): $(GO_FILES)
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -ldflags $(LDFLAGS) -o $(DOCKER_EXECUTABLE) $(BASE_PKG)
 
 image: .image-stamp
 
-.image-stamp: $(DOCKER_DIR)/$(EXECUTABLE) $(DOCKER_FILE)
-	docker build -t zvelo/$(EXECUTABLE) $(DOCKER_DIR)
+.image-stamp: $(DOCKER_EXECUTABLE) $(DOCKERFILE)
+	docker build -t $(DOCKER_IMAGE) Docker
 	@touch .image-stamp
 
-push:
-	docker tag -f $(DOCKER_IMAGE):latest $(DOCKER_IMAGE):$(DOCKER_RELEASE_TAG)
-	docker push $(DOCKER_IMAGE):latest
-	docker push $(DOCKER_IMAGE):$(DOCKER_RELEASE_TAG)
+clean::
+	rm -f \
+		$(EXECUTABLE) \
+		$(DOCKER_EXECUTABLE) \
+		.image-stamp
 
-$(HOME)/go/go$(GOLANG_VERSION).linux-amd64.tar.gz:
-	@mkdir -p $(HOME)/go
-	wget https://storage.googleapis.com/golang/go$(GOLANG_VERSION).linux-amd64.tar.gz -O $(HOME)/go/go$(GOLANG_VERSION).linux-amd64.tar.gz
-
-$(HOME)/go/go$(GOLANG_VERSION)/bin/go: $(HOME)/go/go$(GOLANG_VERSION).linux-amd64.tar.gz
-	@tar -C $(HOME)/go -zxf $(HOME)/go/go$(GOLANG_VERSION).linux-amd64.tar.gz
-	@mv $(HOME)/go/go $(HOME)/go/go$(GOLANG_VERSION)
-	@touch $(HOME)/go/go$(GOLANG_VERSION)/bin/go
-
-install_go: $(HOME)/go/go$(GOLANG_VERSION)/bin/go
-
-.PHONY: all lint metalint build clean image push install_go
+.PHONY: all build image clean

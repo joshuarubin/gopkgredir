@@ -1,6 +1,5 @@
-.envrc
-/.save-stamp
+/.install-*
+/.image-stamp
 /gopkgredir
 /Docker/gopkgredir
-/k8s/*-dev.yaml
-/k8s/*-prod.yaml
+/letsencrypt.cache
